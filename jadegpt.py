@@ -11,8 +11,7 @@ import torch
 
 from model import GPTConfig, GPT
 
-def open_dataset_file(input_dir, data_file_name):
-    input_file_path = input_dir + '\\' + data_file_name
+def open_dataset_file(input_file_path):
     with open(input_file_path, 'r', encoding='utf8') as f:
         data = f.read()
     return data
@@ -23,26 +22,24 @@ def split_dataset(data, split):
     val_data = data[int(n*split):] 
     return train_data, val_data
 
-def get_vocab_size(data):
-    chars = sorted(list(set(data)))
-    vocab_size = len(chars)
-    print("all the unique characters:", ''.join(chars))
-    print(f"vocab size: {vocab_size:,}")
+def get_vocab_size(data, use_gpt2_encoding):
+    vocab_size = 50304 if use_gpt2_encoding else len(sorted(list(set(data))))
     return vocab_size
 
 def export_data_to_files(data, train_data, val_data, use_gpt2_encoding, data_dir, train_file_name, val_file_name, meta_file_name):
     # create a mapping from characters to integers
     chars = sorted(list(set(data)))
-    vocab_size = len(chars)
+    
     if use_gpt2_encoding:
         encoding = 'gpt2'
+        vocab_size = 50304
         stoi = {}
         itos = {}
         enc = tiktoken.get_encoding("gpt2")
         encode = lambda s: enc.encode(s, allowed_special={"<|endoftext|>"})
-
     else:
         encoding = 'custom'
+        vocab_size = len(chars)
         stoi = { ch:i for i,ch in enumerate(chars) }
         itos = { i:ch for i,ch in enumerate(chars) }
         def encode(s):
@@ -111,13 +108,13 @@ def init_gpt2(gpt2_model = 'gpt2', random_seed = 1337):
 
     return model
 
-def resume_gpt(model_dir, model_file_name, random_seed, device):
+def resume_gpt(model_file_path, random_seed, device):
     torch.manual_seed(random_seed)
     torch.cuda.manual_seed(random_seed)
     torch.backends.cuda.matmul.allow_tf32 = True # allow tf32 on matmul
     torch.backends.cudnn.allow_tf32 = True # allow tf32 on cudnn
     
-    checkpoint = torch.load(model_dir + '\\' + model_file_name, map_location=device)
+    checkpoint = torch.load(model_file_path, map_location=device)
 
     # resume from a checkpoint
     print("Initializing a GPT model from a checkpoint")
@@ -248,11 +245,11 @@ def train_gpt(model, dtype, device, train_data, val_data, block_size, batch_size
 
         # saving checkpoints
         if iter_num % save_interval == 0 and only_save_on_finish == False and iter_num != max_iters:
-            save_checkpoint(model, optimizer, iter_num, best_val_loss, model_dir, model_name + '-' + str(iter_num) + '.cpkt')
+            save_checkpoint(model, optimizer, iter_num, best_val_loss, model_dir, model_name + '-' + str(iter_num) + '.ckpt')
 
         # termination conditions
         if iter_num == max_iters:
-            save_checkpoint(model, optimizer, iter_num, best_val_loss, model_dir, model_name + '-' + str(max_iters) + '.cpkt')
+            save_checkpoint(model, optimizer, iter_num, best_val_loss, model_dir, model_name + '-' + str(max_iters) + '.ckpt')
             break
         
         iter_num += 1
@@ -293,9 +290,14 @@ def generate_text(model, start, use_gpt2_encoding, meta_dir, meta_file_name, num
     ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
     ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
     
+    output = ''
     with torch.no_grad():
         with ctx:
             for k in range(num_samples):
                 y = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
+                output += decode(y[0].tolist())
                 print(decode(y[0].tolist()))
+                output += '\n---------------\n'
                 print('---------------')
+
+    return output
