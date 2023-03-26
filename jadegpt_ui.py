@@ -224,7 +224,7 @@ with gr.Blocks(title='jadeGPT') as ui:
                 log_interval_finetune = gr.Slider(minimum=1, maximum=100, value=10, step=16.0, label='Log interval')
                 only_save_on_finish_finetune = gr.Checkbox(value=False, label='Only save checkpoint when finish training')
                 save_interval_finetune = gr.Slider(minimum=1, maximum=100, value=50, step=16.0, label='Save checkpoint interval')
-                finetune_button = gr.Button(value='Train GPT model')
+                finetune_button = gr.Button(value='Fine-tune GPT model')
                 finetune_result = gr.Markdown()
                 finetune_button.click(finetune_gpt, [dtype, device, batch_size_finetune, max_iters_finetune, learning_rate_finetune, decay_lr_finetune, gradient_accumulation_steps_finetune, log_interval_finetune, only_save_on_finish_finetune, save_interval_finetune, model_dir, model_name_finetune], finetune_result)
         with gr.Row():
