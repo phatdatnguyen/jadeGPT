@@ -5,7 +5,9 @@ This is a conversion of [nanoGPT](https://github.com/karpathy/nanoGPT) to Jupyte
 
 ## Gradio web app
 ![Train tab](/images/ui1.png "Train tab")
+--
 ![Fine-tune tab](/images/ui2.png "Fine-tune")
+--
 ![Text generation](/images/ui3.png "Text generation")
 
 ## Installation
@@ -18,9 +20,15 @@ This is a conversion of [nanoGPT](https://github.com/karpathy/nanoGPT) to Jupyte
 - `pip install transformers`
 - `pip install datasets`
 - `pip install tiktoken`
+5. In terminal: `git clone https://github.com/phatdatnguyen/jadeGPT`
 
 ## Quick guide
-In terminal: `git clone https://github.com/phatdatnguyen/jadeGPT`
+For Gradio
+- Open jadeGPT folder
+- In terminal: `python jadegpt_ui.py`
+- Use the **Train** tab for training a new GPT model using a custom dataset
+- Use the **Fine-tune** tab for fine-tuning a checkpoint or a pretrained GPT2 model
+- If you only want to generate text from a checkpoint or a pretrained GPT2 model, use to **Fine-tune** tab to load the model and start generating text 
 
 For Jupyter Notebook
 - Open Jupyter Notebook and navigate to the jadeGPT folder
@@ -29,9 +37,3 @@ For Jupyter Notebook
 - Use **sample-gpt.ipynb** to generate text from a checkpoint
 - Use **sample-gpt2.ipynb** to generate text from a pretrained GPT2 model
 
-For Gradio
-- Open jadeGPT folder
-- In terminal: `python jadegpt_ui.py`
-- Use the **Train** tab for training a new GPT model using a custom dataset
-- Use the **Fine-tune** tab for fine-tuning a checkpoint or a pretrained GPT2 model
-- If you only want to generate text from a checkpoint or a pretrained GPT2 model, use to **Fine-tune** tab to load the model and start generating text
