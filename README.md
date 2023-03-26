@@ -28,7 +28,7 @@ For Gradio
 - In terminal: `python jadegpt_ui.py`
 - Use the **Train** tab for training a new GPT model using a custom dataset
 - Use the **Fine-tune** tab for fine-tuning a checkpoint or a pretrained GPT2 model
-- If you only want to generate text from a checkpoint or a pretrained GPT2 model, use to **Fine-tune** tab to load the model and start generating text 
+- If you only want to generate text from a checkpoint or a pretrained GPT2 model, use the **Fine-tune** tab to load a model and start generating text 
 
 For Jupyter Notebook
 - Open Jupyter Notebook and navigate to the jadeGPT folder
