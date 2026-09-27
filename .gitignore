@@ -361,3 +361,27 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# jadeGPT environments, caches, and generated training artifacts
+.venv*/
+venv/
+.tools/
+.uv-cache/
+.python/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+*.egg-info/
+build/
+dist/
+data/
+models/
+artifacts/
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.pkl
+.env
+.env.*
+!.env.example

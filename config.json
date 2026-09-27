@@ -1,1 +1,6 @@
-{"data_dir": "C:\\data", "model_dir": "C:\\model", "device": "GPU", "dtype": "bfloat16"}
+{
+  "data_dir": "data",
+  "model_dir": "models",
+  "device": "auto",
+  "dtype": "auto"
+}

@@ -1,0 +1,3 @@
+# The package metadata is the single source of dependency versions.
+# For notebooks or development: python -m pip install -e ".[notebooks,dev]"
+-e .

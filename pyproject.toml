@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=84,<85"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jadegpt"
+version = "2.0.0"
+description = "A hands-on GPT learning lab with Gradio and Jupyter notebooks, inspired by nanoGPT"
+readme = "README.md"
+requires-python = ">=3.13,<3.15"
+license = "MIT"
+license-files = ["LICENSE.txt"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Education",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "gradio>=6.28.0,<7",
+    "numpy>=2.5.3,<3",
+    "pandas>=3.0.6,<4",
+    "torch>=2.14.0,<3",
+    "tiktoken>=0.14.0,<0.15",
+    "transformers>=5.17.0,<6",
+]
+
+[project.optional-dependencies]
+notebooks = [
+    "jupyterlab>=4.6.4,<5",
+    "ipykernel>=7.3.0,<8",
+    "matplotlib>=3.11.2,<4",
+]
+dev = [
+    "build>=1.6.1,<2",
+    "pytest>=9.1.1,<10",
+    "ruff>=0.16.9,<0.17",
+    "nbformat>=5.11.1,<6",
+    "nbclient>=0.11.0,<0.12",
+]
+
+[project.scripts]
+jadegpt = "jadegpt_ui:main"
+
+[project.urls]
+Repository = "https://github.com/phatdatnguyen/jadeGPT"
+Upstream = "https://github.com/karpathy/nanoGPT"
+
+[tool.setuptools]
+py-modules = ["model", "jadegpt", "jadegpt_ui"]
+
+[tool.setuptools.data-files]
+"share/jadegpt/examples" = ["examples/tiny_corpus.txt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+extend-exclude = [".ipynb_checkpoints", ".tools", ".python", "artifacts"]
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]

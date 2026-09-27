@@ -6,12 +6,12 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-# @torch.jit.script # good to enable when not using torch.compile, disable when using (our default)
 def new_gelu(x):
-    return 0.5 * x * (1.0 + torch.tanh(math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))))
+    """GPT-2's tanh GELU approximation, using PyTorch's native implementation."""
+    return F.gelu(x, approximate="tanh")
 
 class LayerNorm(nn.Module):
-    """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
+    """Layer normalization with GPT-2-compatible parameter names and optional bias."""
 
     def __init__(self, ndim, bias):
         super().__init__()
@@ -36,7 +36,7 @@ class CausalSelfAttention(nn.Module):
         self.n_head = config.n_head
         self.n_embd = config.n_embd
         self.dropout = config.dropout
-        # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
+        # SDPA selects an appropriate attention implementation for the device.
         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
         if not self.flash:
             print("WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0")
@@ -55,8 +55,10 @@ class CausalSelfAttention(nn.Module):
 
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         if self.flash:
-            # efficient attention using Flash Attention CUDA kernels
-            y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout, is_causal=True)
+            # Functional SDPA does not inspect module.training, unlike nn.Dropout.
+            y = F.scaled_dot_product_attention(q, k, v, attn_mask=None,
+                                              dropout_p=self.dropout if self.training else 0.0,
+                                              is_causal=True)
         else:
             # manual implementation of attention
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
@@ -109,6 +111,16 @@ class GPTConfig:
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
 
+    def __post_init__(self):
+        for name in ("block_size", "vocab_size", "n_layer", "n_head", "n_embd"):
+            value = getattr(self, name)
+            if type(value) is not int or value < 1:
+                raise ValueError(f"{name} must be a positive integer.")
+        if self.n_embd % self.n_head:
+            raise ValueError("Embedding width n_embd must be divisible by the number of heads n_head.")
+        if not 0 <= self.dropout < 1:
+            raise ValueError("dropout must be in [0, 1).")
+
 class GPT(nn.Module):
 
     def __init__(self, config):
@@ -159,8 +171,11 @@ class GPT(nn.Module):
 
     def forward(self, idx, targets=None):
         device = idx.device
+        if idx.ndim != 2 or idx.size(1) == 0:
+            raise ValueError("Token input must be a nonempty (batch, sequence) tensor.")
         b, t = idx.size()
-        assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
+        if t > self.config.block_size:
+            raise ValueError(f"Sequence length {t} exceeds context length {self.config.block_size}.")
         pos = torch.arange(0, t, dtype=torch.long, device=device).unsqueeze(0) # shape (1, t)
 
         # forward the GPT model itself
@@ -186,18 +201,23 @@ class GPT(nn.Module):
         # model surgery to decrease the block size if necessary
         # e.g. we may load the GPT2 pretrained model checkpoint (block size 1024)
         # but want to use a smaller block size for some smaller, simpler model
-        assert block_size <= self.config.block_size
+        if type(block_size) is not int or not 1 <= block_size <= self.config.block_size:
+            raise ValueError("New context length must be a positive integer no larger than the old context.")
         self.config.block_size = block_size
         self.transformer.wpe.weight = nn.Parameter(self.transformer.wpe.weight[:block_size])
+        self.transformer.wpe.num_embeddings = block_size
         for block in self.transformer.h:
-            block.attn.bias = block.attn.bias[:,:,:block_size,:block_size]
+            if hasattr(block.attn, 'bias'):
+                block.attn.bias = block.attn.bias[:,:,:block_size,:block_size]
 
     @classmethod
     def from_pretrained(cls, model_type, override_args=None):
-        assert model_type in {'gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'}
+        if model_type not in {'gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'}:
+            raise ValueError("Choose gpt2, gpt2-medium, gpt2-large, or gpt2-xl.")
         override_args = override_args or {} # default to empty dict
         # only dropout can be overridden see more notes below
-        assert all(k == 'dropout' for k in override_args)
+        if any(k != 'dropout' for k in override_args):
+            raise ValueError("Only dropout can be overridden when loading pretrained GPT-2.")
         from transformers import GPT2LMHeadModel
         print("loading weights from pretrained gpt: %s" % model_type)
 
@@ -299,7 +319,7 @@ class GPT(nn.Module):
             {"params": [param_dict[pn] for pn in sorted(list(decay))], "weight_decay": weight_decay},
             {"params": [param_dict[pn] for pn in sorted(list(no_decay))], "weight_decay": 0.0},
         ]
-        # new PyTorch nightly has a new 'fused' option for AdamW that is much faster
+        # Fused AdamW is available on supported CUDA devices.
         use_fused = (device_type == 'cuda') and ('fused' in inspect.signature(torch.optim.AdamW).parameters)
         print(f"using fused AdamW: {use_fused}")
         extra_args = dict(fused=True) if use_fused else dict()
@@ -324,27 +344,47 @@ class GPT(nn.Module):
         return mfu
 
     @torch.no_grad()
-    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, *, valid_vocab_size=None):
         """
         Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
         the sequence max_new_tokens times, feeding the predictions back into the model each time.
         Most likely you'll want to make sure to be in model.eval() mode of operation for this.
         """
+        if type(max_new_tokens) is not int or max_new_tokens < 0:
+            raise ValueError("max_new_tokens must be a nonnegative integer.")
+        if not math.isfinite(temperature) or temperature < 0:
+            raise ValueError("temperature must be nonnegative and finite (zero selects greedily).")
+        if top_k is not None and (type(top_k) is not int or top_k < 0):
+            raise ValueError("top_k must be a nonnegative integer or None (zero keeps all tokens).")
+        top_k = top_k or None
+        if idx.ndim != 2 or idx.size(1) == 0:
+            raise ValueError("Generation requires at least one prompt token.")
+        if valid_vocab_size is None:
+            metadata = getattr(self, "tokenizer_metadata", {})
+            valid_vocab_size = metadata.get("actual_vocab_size", self.config.vocab_size)
+        if type(valid_vocab_size) is not int or not 1 <= valid_vocab_size <= self.config.vocab_size:
+            raise ValueError("valid_vocab_size must fit in the model embedding table.")
         for _ in range(max_new_tokens):
             # if the sequence context is growing too long we must crop it at block_size
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
             # forward the model to get the logits for the index in the sequence
             logits, _ = self(idx_cond)
             # pluck the logits at the final step and scale by desired temperature
-            logits = logits[:, -1, :] / temperature
+            logits = logits[:, -1, :]
+            if temperature > 0:
+                logits = logits / temperature
+            # GPT-2's padded embedding entries (50,257..50,303) are not tokens.
+            logits[:, valid_vocab_size:] = -float('Inf')
             # optionally crop the logits to only the top k options
             if top_k is not None:
-                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                v, _ = torch.topk(logits, min(top_k, valid_vocab_size))
                 logits[logits < v[:, [-1]]] = -float('Inf')
-            # apply softmax to convert logits to (normalized) probabilities
-            probs = F.softmax(logits, dim=-1)
-            # sample from the distribution
-            idx_next = torch.multinomial(probs, num_samples=1)
+            if temperature == 0:
+                idx_next = torch.argmax(logits, dim=-1, keepdim=True)
+            else:
+                # Apply softmax and sample from the normalized probabilities.
+                probs = F.softmax(logits, dim=-1)
+                idx_next = torch.multinomial(probs, num_samples=1)
             # append sampled index to the running sequence and continue
             idx = torch.cat((idx, idx_next), dim=1)
 
